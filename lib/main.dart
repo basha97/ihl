@@ -1,12 +1,113 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:ihl/config.dart';
+import 'package:ihl/shimmer_screen.dart';
+import 'package:ihl/splash_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 
-void main() => runApp(HealthApp());
+void main() => runApp(MyApp());
+
+HealthFactory health = HealthFactory();
+
+// define the types to get
+final types = [
+  HealthDataType.STEPS,
+  HealthDataType.WEIGHT,
+  HealthDataType.HEIGHT
+  // Uncomment these lines on iOS - only available on iOS
+  // HealthDataType.AUDIOGRAM
+];
+
+// with coresponsing permissions
+final permissions = [
+  HealthDataAccess.READ,
+  HealthDataAccess.READ,
+  HealthDataAccess.READ,
+  // HealthDataAccess.READ,
+];
+
+ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
+
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+        valueListenable: themeNotifier,
+        builder: (_, ThemeMode mode, ___) {
+          debugPrint(" value listenable ... ");
+          return MaterialApp(
+            themeMode: mode,
+            theme: ThemeData.light(),
+            darkTheme: ThemeData.dark(),
+            home: SplashScreen(),
+          );
+        });
+  }
+}
+
+class Health extends StatefulWidget {
+  const Health({Key? key}) : super(key: key);
+
+  @override
+  State<Health> createState() => _HealthState();
+}
+
+class _HealthState extends State<Health> {
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    //checkAuthorization();
+  }
+
+  Future<bool> checkAuthorization() async {
+    final bool isRequested =
+        await health.requestAuthorization(types, permissions: permissions);
+    return isRequested;
+  }
+
+  Future<int> fetchData() async {
+    final isAuthorized = await checkAuthorization();
+    if (isAuthorized) {
+      int? steps;
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      steps = await health.getTotalStepsInInterval(midnight, now);
+      return steps ?? 0;
+    } else {
+      return 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Health App"),
+      ),
+      body: FutureBuilder(
+        future: fetchData(),
+        builder: (_, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const ExampleUiLoadingAnimation();
+          }
+          if (snapshot.hasData) {
+            return Center(
+              child: Text("${snapshot.data}"),
+            );
+          }
+          return Text("${snapshot.error}");
+        },
+      ),
+    );
+  }
+}
 
 class HealthApp extends StatefulWidget {
   @override
@@ -31,28 +132,10 @@ class _HealthAppState extends State<HealthApp> {
   double _mgdl = 10.0;
 
   // create a HealthFactory for use in the app
-  HealthFactory health = HealthFactory();
 
   /// Fetch data points from the health plugin and show them in the app.
   Future fetchData() async {
     setState(() => _state = AppState.FETCHING_DATA);
-
-    // define the types to get
-    final types = [
-      HealthDataType.STEPS,
-      HealthDataType.WEIGHT,
-      HealthDataType.HEIGHT
-      // Uncomment these lines on iOS - only available on iOS
-      // HealthDataType.AUDIOGRAM
-    ];
-
-    // with coresponsing permissions
-    final permissions = [
-      HealthDataAccess.READ,
-      HealthDataAccess.READ,
-      HealthDataAccess.READ,
-      // HealthDataAccess.READ,
-    ];
 
     // get data within the last 24 hours
     final now = DateTime.now();
@@ -61,7 +144,7 @@ class _HealthAppState extends State<HealthApp> {
     // note that strictly speaking, the [permissions] are not
     // needed, since we only want READ access.
     bool requested =
-    await health.requestAuthorization(types, permissions: permissions);
+        await health.requestAuthorization(types, permissions: permissions);
     print('requested: $requested');
 
     // If we are trying to read Step Count, Workout, Sleep or other data that requires
@@ -76,7 +159,7 @@ class _HealthAppState extends State<HealthApp> {
       try {
         // fetch health data
         List<HealthDataPoint> healthData =
-        await health.getHealthDataFromTypes(yesterday, now, types);
+            await health.getHealthDataFromTypes(yesterday, now, types);
         // save all the new data points (only the first 100)
         _healthDataList.addAll((healthData.length < 100)
             ? healthData
@@ -94,7 +177,7 @@ class _HealthAppState extends State<HealthApp> {
       // update the UI to display the results
       setState(() {
         _state =
-        _healthDataList.isEmpty ? AppState.NO_DATA : AppState.DATA_READY;
+            _healthDataList.isEmpty ? AppState.NO_DATA : AppState.DATA_READY;
       });
     } else {
       print("Authorization not granted");
@@ -131,7 +214,7 @@ class _HealthAppState extends State<HealthApp> {
     ];
     late bool perm;
     bool? hasPermissions =
-    await HealthFactory.hasPermissions(types, permissions: rights);
+        await HealthFactory.hasPermissions(types, permissions: rights);
     if (hasPermissions == false) {
       perm = await health.requestAuthorization(types, permissions: permissions);
     }
@@ -143,7 +226,7 @@ class _HealthAppState extends State<HealthApp> {
 
     // Store a height
     success &=
-    await health.writeHealthData(1.93, HealthDataType.HEIGHT, earlier, now);
+        await health.writeHealthData(1.93, HealthDataType.HEIGHT, earlier, now);
 
     // Store a Blood Glucose measurement
     _mgdl = Random().nextInt(10) * 1.0;
@@ -308,35 +391,60 @@ class _HealthAppState extends State<HealthApp> {
   }
 
   @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-          appBar: AppBar(
-            title: const Text('Health Example'),
-            actions: <Widget>[
-              IconButton(
-                icon: Icon(Icons.file_download),
-                onPressed: () {
-                  fetchData();
-                },
+    return ValueListenableBuilder(
+        valueListenable: themeNotifier,
+        builder: (_, ThemeMode mode, ___) {
+          debugPrint(" value listenable ... ");
+          return MaterialApp(
+            themeMode: mode,
+            theme: ThemeData.light(),
+            darkTheme: ThemeData.dark(),
+            home: Scaffold(
+              appBar: AppBar(
+                title: const Text('Health Example'),
+                actions: <Widget>[
+                  IconButton(
+                    icon: Icon(Icons.file_download),
+                    onPressed: () {
+                      fetchData();
+                    },
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      addData();
+                    },
+                    icon: Icon(Icons.add),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      fetchStepData();
+                    },
+                    icon: Icon(Icons.nordic_walking),
+                  )
+                ],
               ),
-              IconButton(
-                onPressed: () {
-                  addData();
-                },
-                icon: Icon(Icons.add),
+              body: Center(
+                child: _content(),
               ),
-              IconButton(
+              floatingActionButton: FloatingActionButton(
                 onPressed: () {
-                  fetchStepData();
+                  themeNotifier.value = themeNotifier.value == ThemeMode.light
+                      ? ThemeMode.dark
+                      : ThemeMode.light;
                 },
-                icon: Icon(Icons.nordic_walking),
-              )
-            ],
-          ),
-          body: Center(
-            child: _content(),
-          )),
-    );
+                child: Icon(themeNotifier.value == ThemeMode.light
+                    ? Icons.dark_mode
+                    : Icons.light_mode),
+              ),
+            ),
+          );
+        });
   }
 }
