@@ -4,6 +4,8 @@ void main() {
   runApp(const MyApp());
 }
 
+//  keytool -genkey -v -keystore c:\Users\Xavier\upload-keystore.jks -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
 
