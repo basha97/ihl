@@ -1,34 +1,17 @@
 import 'dart:async';
-import 'dart:math';
-
-import 'package:ihl/config.dart';
-import 'package:ihl/shimmer_screen.dart';
-import 'package:ihl/splash_screen.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
+import 'package:ihl/shimmer_screen.dart';
+import 'package:ihl/splash_screen.dart';
+import 'package:ihl/utils.dart';
 
-void main() => runApp(MyApp());
+import 'constant.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+void main() => runApp(const MyApp());
 
 HealthFactory health = HealthFactory();
-
-// define the types to get
-final types = [
-  HealthDataType.STEPS,
-  HealthDataType.WEIGHT,
-  HealthDataType.HEIGHT
-  // Uncomment these lines on iOS - only available on iOS
-  // HealthDataType.AUDIOGRAM
-];
-
-// with coresponsing permissions
-final permissions = [
-  HealthDataAccess.READ,
-  HealthDataAccess.READ,
-  HealthDataAccess.READ,
-  // HealthDataAccess.READ,
-];
 
 ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
@@ -38,16 +21,18 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder(
-        valueListenable: themeNotifier,
-        builder: (_, ThemeMode mode, ___) {
-          debugPrint(" value listenable ... ");
-          return MaterialApp(
-            themeMode: mode,
-            theme: ThemeData.light(),
-            darkTheme: ThemeData.dark(),
-            home: SplashScreen(),
-          );
-        });
+      valueListenable: themeNotifier,
+      builder: (_, ThemeMode mode, ___) {
+        return MaterialApp(
+          scaffoldMessengerKey: messengerKey,
+          debugShowCheckedModeBanner: false,
+          themeMode: mode,
+          theme: ThemeData.light(),
+          darkTheme: ThemeData.dark(),
+          home: const SplashScreen(),
+        );
+      },
+    );
   }
 }
 
@@ -59,392 +44,157 @@ class Health extends StatefulWidget {
 }
 
 class _HealthState extends State<Health> {
-  @override
-  void initState() {
-    // TODO: implement initState
-    super.initState();
-    //checkAuthorization();
-  }
-
   Future<bool> checkAuthorization() async {
     final bool isRequested =
         await health.requestAuthorization(types, permissions: permissions);
+    debugPrint(" ... $isRequested ... ");
     return isRequested;
   }
 
-  Future<int> fetchData() async {
-    final isAuthorized = await checkAuthorization();
-    if (isAuthorized) {
-      int? steps;
-      final now = DateTime.now();
-      final midnight = DateTime(now.year, now.month, now.day);
-      steps = await health.getTotalStepsInInterval(midnight, now);
-      return steps ?? 0;
-    } else {
-      return 0;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Health App"),
-      ),
-      body: FutureBuilder(
-        future: fetchData(),
-        builder: (_, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const ExampleUiLoadingAnimation();
-          }
-          if (snapshot.hasData) {
-            return Center(
-              child: Text("${snapshot.data}"),
-            );
-          }
-          return Text("${snapshot.error}");
-        },
-      ),
-    );
-  }
-}
-
-class HealthApp extends StatefulWidget {
-  @override
-  _HealthAppState createState() => _HealthAppState();
-}
-
-enum AppState {
-  DATA_NOT_FETCHED,
-  FETCHING_DATA,
-  DATA_READY,
-  NO_DATA,
-  AUTH_NOT_GRANTED,
-  DATA_ADDED,
-  DATA_NOT_ADDED,
-  STEPS_READY,
-}
-
-class _HealthAppState extends State<HealthApp> {
-  List<HealthDataPoint> _healthDataList = [];
-  AppState _state = AppState.DATA_NOT_FETCHED;
-  int _nofSteps = 10;
-  double _mgdl = 10.0;
-
-  // create a HealthFactory for use in the app
-
-  /// Fetch data points from the health plugin and show them in the app.
   Future fetchData() async {
-    setState(() => _state = AppState.FETCHING_DATA);
-
-    // get data within the last 24 hours
-    final now = DateTime.now();
-    final yesterday = now.subtract(Duration(days: 5));
-    // requesting access to the data types before reading them
-    // note that strictly speaking, the [permissions] are not
-    // needed, since we only want READ access.
-    bool requested =
-        await health.requestAuthorization(types, permissions: permissions);
-    print('requested: $requested');
-
-    // If we are trying to read Step Count, Workout, Sleep or other data that requires
-    // the ACTIVITY_RECOGNITION permission, we need to request the permission first.
-    // This requires a special request authorization call.
-    //
-    // The location permission is requested for Workouts using the Distance information.
-    await Permission.activityRecognition.request();
-    await Permission.location.request();
-
-    if (requested) {
-      try {
-        // fetch health data
-        List<HealthDataPoint> healthData =
-            await health.getHealthDataFromTypes(yesterday, now, types);
-        // save all the new data points (only the first 100)
-        _healthDataList.addAll((healthData.length < 100)
-            ? healthData
-            : healthData.sublist(0, 100));
-      } catch (error) {
-        print("Exception in getHealthDataFromTypes: $error");
-      }
-
-      // filter out duplicates
-      _healthDataList = HealthFactory.removeDuplicates(_healthDataList);
-
-      // print the results
-      _healthDataList.forEach((x) => print(x));
-
-      // update the UI to display the results
-      setState(() {
-        _state =
-            _healthDataList.isEmpty ? AppState.NO_DATA : AppState.DATA_READY;
-      });
-    } else {
-      print("Authorization not granted");
-      setState(() => _state = AppState.DATA_NOT_FETCHED);
-    }
-  }
-
-  /// Add some random health data.
-  Future addData() async {
-    final now = DateTime.now();
-    final earlier = now.subtract(Duration(minutes: 20));
-
-    final types = [
-      HealthDataType.STEPS,
-      HealthDataType.HEIGHT,
-      HealthDataType.BLOOD_GLUCOSE,
-      HealthDataType.WORKOUT, // Requires Google Fit on Android
-      // Uncomment these lines on iOS - only available on iOS
-      // HealthDataType.AUDIOGRAM,
-    ];
-    final rights = [
-      HealthDataAccess.WRITE,
-      HealthDataAccess.WRITE,
-      HealthDataAccess.WRITE,
-      HealthDataAccess.WRITE,
-      // HealthDataAccess.WRITE
-    ];
-    final permissions = [
-      HealthDataAccess.READ_WRITE,
-      HealthDataAccess.READ_WRITE,
-      HealthDataAccess.READ_WRITE,
-      HealthDataAccess.READ_WRITE,
-      // HealthDataAccess.READ_WRITE,
-    ];
-    late bool perm;
-    bool? hasPermissions =
-        await HealthFactory.hasPermissions(types, permissions: rights);
-    if (hasPermissions == false) {
-      perm = await health.requestAuthorization(types, permissions: permissions);
-    }
-
-    // Store a count of steps taken
-    _nofSteps = Random().nextInt(10);
-    bool success = await health.writeHealthData(
-        _nofSteps.toDouble(), HealthDataType.STEPS, earlier, now);
-
-    // Store a height
-    success &=
-        await health.writeHealthData(1.93, HealthDataType.HEIGHT, earlier, now);
-
-    // Store a Blood Glucose measurement
-    _mgdl = Random().nextInt(10) * 1.0;
-    success &= await health.writeHealthData(
-        _mgdl, HealthDataType.BLOOD_GLUCOSE, now, now);
-
-    // Store a workout eg. running
-    success &= await health.writeWorkoutData(
-      HealthWorkoutActivityType.RUNNING, earlier, now,
-      // The following are optional parameters
-      // and the UNITS are functional on iOS ONLY!
-      totalEnergyBurned: 230,
-      totalEnergyBurnedUnit: HealthDataUnit.KILOCALORIE,
-      totalDistance: 1234,
-      totalDistanceUnit: HealthDataUnit.FOOT,
-    );
-
-    // Store an Audiogram
-    // Uncomment these on iOS - only available on iOS
-    // const frequencies = [125.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0];
-    // const leftEarSensitivities = [49.0, 54.0, 89.0, 52.0, 77.0, 35.0];
-    // const rightEarSensitivities = [76.0, 66.0, 90.0, 22.0, 85.0, 44.5];
-
-    // success &= await health.writeAudiogram(
-    //   frequencies,
-    //   leftEarSensitivities,
-    //   rightEarSensitivities,
-    //   now,
-    //   now,
-    //   metadata: {
-    //     "HKExternalUUID": "uniqueID",
-    //     "HKDeviceName": "bluetooth headphone",
-    //   },
-    // );
-
-    setState(() {
-      _state = success ? AppState.DATA_ADDED : AppState.DATA_NOT_ADDED;
-    });
-  }
-
-  /// Fetch steps from the health plugin and show them in the app.
-  Future fetchStepData() async {
-    int? steps;
-
-    // get steps for today (i.e., since midnight)
-    final now = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day);
-
-    bool requested = await health.requestAuthorization([HealthDataType.STEPS]);
-
-    if (requested) {
-      try {
+    final isAuthorized = await checkAuthorization();
+    try {
+      if (isAuthorized) {
+        int? steps;
+        final now = DateTime.now();
+        final midnight = DateTime(now.year, now.month, now.day);
         steps = await health.getTotalStepsInInterval(midnight, now);
-      } catch (error) {
-        print("Caught exception in getTotalStepsInInterval: $error");
+        return steps ?? 0;
+      } else {
+        Utils.showSnackBar("Please Authorize");
       }
-
-      print('Total number of steps: $steps');
-
-      setState(() {
-        _nofSteps = (steps == null) ? 0 : steps;
-        _state = (steps == null) ? AppState.NO_DATA : AppState.STEPS_READY;
-      });
-    } else {
-      print("Authorization not granted - error in authorization");
-      setState(() => _state = AppState.DATA_NOT_FETCHED);
+    } catch (e) {
+      throw "Access Denied";
     }
-  }
-
-  Widget _contentFetchingData() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        Container(
-            padding: EdgeInsets.all(20),
-            child: CircularProgressIndicator(
-              strokeWidth: 10,
-            )),
-        Text('Fetching data...')
-      ],
-    );
-  }
-
-  Widget _contentDataReady() {
-    return ListView.builder(
-        itemCount: _healthDataList.length,
-        itemBuilder: (_, index) {
-          HealthDataPoint p = _healthDataList[index];
-          if (p.value is AudiogramHealthValue) {
-            return ListTile(
-              title: Text("${p.typeString}: ${p.value}"),
-              trailing: Text('${p.unitString}'),
-              subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
-            );
-          }
-          if (p.value is WorkoutHealthValue) {
-            return ListTile(
-              title: Text(
-                  "${p.typeString}: ${(p.value as WorkoutHealthValue).totalEnergyBurned} ${(p.value as WorkoutHealthValue).totalEnergyBurnedUnit?.typeToString()}"),
-              trailing: Text(
-                  '${(p.value as WorkoutHealthValue).workoutActivityType.typeToString()}'),
-              subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
-            );
-          }
-          return ListTile(
-            title: Text("${p.typeString}: ${p.value}"),
-            trailing: Text('${p.unitString}'),
-            subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
-          );
-        });
-  }
-
-  Widget _contentNoData() {
-    return Text('No Data to show');
-  }
-
-  Widget _contentNotFetched() {
-    return Column(
-      children: [
-        Text('Press the download button to fetch data.'),
-        Text('Press the plus button to insert some random data.'),
-        Text('Press the walking button to get total step count.'),
-      ],
-      mainAxisAlignment: MainAxisAlignment.center,
-    );
-  }
-
-  Widget _authorizationNotGranted() {
-    return Text('Authorization not given. '
-        'For Android please check your OAUTH2 client ID is correct in Google Developer Console. '
-        'For iOS check your permissions in Apple Health.');
-  }
-
-  Widget _dataAdded() {
-    return Text('Data points inserted successfully!');
-  }
-
-  Widget _stepsFetched() {
-    return Text('Total number of steps: $_nofSteps');
-  }
-
-  Widget _dataNotAdded() {
-    return Text('Failed to add data');
-  }
-
-  Widget _content() {
-    if (_state == AppState.DATA_READY)
-      return _contentDataReady();
-    else if (_state == AppState.NO_DATA)
-      return _contentNoData();
-    else if (_state == AppState.FETCHING_DATA)
-      return _contentFetchingData();
-    else if (_state == AppState.AUTH_NOT_GRANTED)
-      return _authorizationNotGranted();
-    else if (_state == AppState.DATA_ADDED)
-      return _dataAdded();
-    else if (_state == AppState.STEPS_READY)
-      return _stepsFetched();
-    else if (_state == AppState.DATA_NOT_ADDED) return _dataNotAdded();
-
-    return _contentNotFetched();
-  }
-
-  @override
-  void initState() {
-    // TODO: implement initState
-    super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder(
         valueListenable: themeNotifier,
-        builder: (_, ThemeMode mode, ___) {
-          debugPrint(" value listenable ... ");
-          return MaterialApp(
-            themeMode: mode,
-            theme: ThemeData.light(),
-            darkTheme: ThemeData.dark(),
-            home: Scaffold(
-              appBar: AppBar(
-                title: const Text('Health Example'),
-                actions: <Widget>[
-                  IconButton(
-                    icon: Icon(Icons.file_download),
-                    onPressed: () {
-                      fetchData();
-                    },
+        builder: (_, __, ___) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text("Health App"),
+              actions: [
+                GestureDetector(
+                  onTap: () {
+                    themeNotifier.value = themeNotifier.value == ThemeMode.light
+                        ? ThemeMode.dark
+                        : ThemeMode.light;
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Icon(themeNotifier.value == ThemeMode.light
+                        ? Icons.dark_mode
+                        : Icons.light_mode),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      addData();
-                    },
-                    icon: Icon(Icons.add),
+                )
+              ],
+            ),
+            body: FutureBuilder(
+              future: fetchData(),
+              builder: (_, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const ExampleUiLoadingAnimation();
+                }
+                if (snapshot.hasData) {
+                  final value = snapshot.data as int;
+                  return HealthCard(value: value);
+                }
+                return Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Text("Access Denied"),
+                      const SizedBox(width: 15),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => build(context),
+                            ),
+                          );
+                        },
+                        child: const Icon(Icons.refresh),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: () {
-                      fetchStepData();
-                    },
-                    icon: Icon(Icons.nordic_walking),
-                  )
-                ],
-              ),
-              body: Center(
-                child: _content(),
-              ),
-              floatingActionButton: FloatingActionButton(
-                onPressed: () {
-                  themeNotifier.value = themeNotifier.value == ThemeMode.light
-                      ? ThemeMode.dark
-                      : ThemeMode.light;
-                },
-                child: Icon(themeNotifier.value == ThemeMode.light
-                    ? Icons.dark_mode
-                    : Icons.light_mode),
-              ),
+                );
+              },
             ),
           );
         });
+  }
+}
+
+class HealthCard extends StatelessWidget {
+  final int value;
+
+  const HealthCard({Key? key, required this.value}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final percentage = value / GOAL;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+      height: 100,
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: themeNotifier.value == ThemeMode.light
+                ? Colors.white
+                : Colors.black12,
+            blurRadius: 20.0,
+          ),
+        ],
+      ),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Steps : $value"),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: percentage,
+                        color: Colors.black,
+                        backgroundColor: Colors.grey,
+                        minHeight: 7,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: const [
+                        Text("0"),
+                        Spacer(),
+                        Text("Goals : $GOAL"),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 15),
+                  child: SvgPicture.asset(FOOT_STEP),
+                ),
+                flex: 1,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
